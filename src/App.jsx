@@ -1993,6 +1993,19 @@ function getLevelFromPlacement(answers) {
   return "C1";
 }
 
+function recommendTopic(level) {
+  const value = String(level || "B1").toUpperCase();
+
+  if (value === "A1") return "present_simple";
+  if (value === "A2") return "past_simple";
+  if (value === "B1") return "present_perfect";
+  if (value === "B2") return "conditionals";
+  if (value === "C1") return "advanced_reported_speech";
+  if (value === "C2") return "advanced_modality";
+
+  return "present_perfect";
+}
+
 function buildSystemPrompt(user) {
   const interests = (user?.interests || []).join(", ") || "general topics";
   const studentLevel = normalizeLevel(user?.level || "B1");
@@ -2011,8 +2024,10 @@ ${levelTopicSummary}
 - Use this tense framework: Present/Past/Future/Future in the Past × Simple/Continuous/Perfect/Perfect Continuous.
 - Also explain that going to is a key future pattern for plans, intentions, and predictions based on present evidence.
 - Easy memory: Simple = fact/action, Continuous = process/action in progress, Perfect = result/completion, Perfect Continuous = duration/process before a point.
-- Ask whether the student wants a quick 5-question quiz.
-- If a quiz is needed, append a hidden quiz block:
+- Do not ask the student whether they want a quiz; quizzes are started only with the separate quiz button.
+- Remember the current topic inside the session. If the student asks a follow-up like 'why?', 'give examples', 'make negative', continue the previous topic.
+- If the student asks clearly off-topic questions, gently return them to the current English topic instead of answering the unrelated question.
+- If a quiz is needed for the app button, append a hidden quiz block:
 <quiz>[{"question":"...","options":["A","B","C","D"],"correct":0,"explanation":"..."}]</quiz>
 - Every quiz question must have exactly 4 options.`;
 }
@@ -2036,6 +2051,127 @@ function parseQuizFromResponse(text) {
 
 function stripQuizTag(text) {
   return String(text || "").replace(/<quiz>[\s\S]*?<\/quiz>/g, "").trim();
+}
+
+
+function getLevelBand(level) {
+  if (["A1", "A2"].includes(level)) return "beginner";
+  if (["B1", "B2"].includes(level)) return "intermediate";
+  return "advanced";
+}
+
+function getLevelIntroText(user) {
+  const level = user?.level || "B1";
+  const band = getLevelBand(level);
+  const interests = (user?.interests || []).join(", ") || "your interests";
+
+  const descriptions = {
+    beginner:
+      "Your current level is beginner. I will use short explanations, simple examples, and basic grammar questions. We will build accuracy first.",
+    intermediate:
+      "Your current level is intermediate. I will explain the rules clearly, compare similar structures, and give questions that require choosing the correct form in context.",
+    advanced:
+      "Your current level is advanced. I will focus on nuance, natural usage, exceptions, register, and more challenging questions."
+  };
+
+  return `${descriptions[band]}\n\nI will also personalize examples and quizzes using ${interests}. Ask me any English topic, or press the quiz button when you want practice.`;
+}
+
+function explicitTopicFromText(text, user = null) {
+  const t = String(text || "").toLowerCase();
+  const catalogMatch = findCatalogTopic(text, user?.level || "B1");
+  if (catalogMatch) return catalogMatch.id;
+  if (t.includes("article") || t.includes("articles") || t.includes("a/an") || t.includes("a, an") || t.includes("definite article") || t.includes("indefinite article") || t.includes("zero article")) return "articles";
+  if (t.includes("future perfect continuous in the past") || t.includes("would have been")) return "tense_future_perfect_continuous_past";
+  if (t.includes("future perfect in the past") || t.includes("would have")) return "tense_future_perfect_past";
+  if (t.includes("future continuous in the past") || t.includes("would be")) return "tense_future_continuous_past";
+  if (t.includes("future simple in the past") || t.includes("future in the past") || t.includes("would +")) return "tense_future_simple_past";
+  if (t.includes("present perfect continuous") || t.includes("have been") || t.includes("has been")) return "tense_present_perfect_continuous";
+  if (t.includes("past perfect continuous") || t.includes("had been")) return "tense_past_perfect_continuous";
+  if (t.includes("future perfect continuous") || t.includes("will have been")) return "tense_future_perfect_continuous";
+  if (t.includes("past perfect") || t.includes("had + v3")) return "tense_past_perfect";
+  if (t.includes("future perfect") || t.includes("will have")) return "tense_future_perfect";
+  if (t.includes("past continuous") || t.includes("was/were")) return "tense_past_continuous";
+  if (t.includes("future continuous") || t.includes("will be")) return "tense_future_continuous";
+  if (t.includes("going to") || t.includes("gonna")) return "future_going_to";
+  if (t.includes("future simple") || t.includes("will +")) return "tense_future_simple";
+  if (t.includes("present perfect") || t.includes("have/has")) return "present_perfect";
+  if (t.includes("present continuous")) return "present_continuous";
+  if (t.includes("past simple")) return "past_simple";
+  if (t.includes("present simple")) return "present_simple";
+  if (t.includes("16 tenses") || t.includes("all tenses") || t.includes("english tenses") || t.includes("tenses") || t.includes("tense")) return "tenses_overview";
+  if (t.includes("reported") || t.includes("indirect speech")) return "reported_speech";
+  if (t.includes("conditional") || t.startsWith("if ") || t.includes(" if ")) return "conditionals";
+  return null;
+}
+
+function isFollowUpQuestion(text) {
+  const t = String(text || "").toLowerCase().trim();
+  if (!t) return false;
+  const followUpWords = [
+    "why", "how", "when", "what about", "and", "also", "more", "again", "another",
+    "example", "examples", "negative", "question", "questions", "quiz", "practice",
+    "explain more", "continue", "make it", "correct", "my mistake", "use it", "difference"
+  ];
+  return followUpWords.some((word) => t.includes(word));
+}
+
+function resolveTopicWithContext(text, user, sessionContext = {}) {
+  const explicit = explicitTopicFromText(text, user);
+  if (explicit) return explicit;
+  if (sessionContext?.currentTopic && isFollowUpQuestion(text)) return sessionContext.currentTopic;
+  return recommendTopic(user?.level || "B1");
+}
+
+function isLearningRelated(text, user, sessionContext = {}) {
+  const t = String(text || "").toLowerCase();
+  if (explicitTopicFromText(text, user)) return true;
+  if (sessionContext?.currentTopic && isFollowUpQuestion(text)) return true;
+  const words = [
+    "english", "grammar", "vocabulary", "word", "phrase", "sentence", "essay", "reading",
+    "writing", "speaking", "listening", "pronunciation", "ielts", "cefr", "level", "mistake",
+    "correct", "translate", "meaning", "example", "quiz", "test", "practice", "homework",
+    "noun", "verb", "adjective", "adverb", "preposition", "modal", "passive", "active"
+  ];
+  return words.some((word) => t.includes(word));
+}
+
+function offTopicReply(user, sessionContext = {}) {
+  const topic = sessionContext?.currentTopic ? (GRAMMAR_TOPICS[sessionContext.currentTopic]?.title || getCatalogTopicById(sessionContext.currentTopic)?.topic || "our English topic") : "English";
+  const level = user?.level || "your level";
+  return `Good question, but I’m here as your English tutor. Let’s keep the lesson focused.\n\nCurrent focus: ${topic}.\nYour level: ${level}.\n\nAsk me something about this topic, or write another English grammar/vocabulary topic you want to study.`;
+}
+
+function adaptQuizToLevel(quiz, level = "B1", version = 0) {
+  const band = getLevelBand(level);
+  return quiz.slice(0, 5).map((q, index) => {
+    const base = {
+      ...q,
+      options: [...(q.options || []).slice(0, 4), "Wrong option", "Wrong option", "Wrong option"].slice(0, 4),
+      correct: Number.isInteger(q.correct) && q.correct >= 0 && q.correct < 4 ? q.correct : 0,
+    };
+
+    if (band === "beginner") {
+      return {
+        ...base,
+        question: `Basic (${level}): ${base.question}`,
+        explanation: `Simple rule: ${base.explanation}`,
+      };
+    }
+
+    if (band === "advanced") {
+      return {
+        ...base,
+        question: `Advanced (${level}): choose the most natural and precise option. ${base.question}`,
+        explanation: `${base.explanation} Also think about nuance, word order, and whether the sentence sounds natural in context.`,
+      };
+    }
+
+    return {
+      ...base,
+      question: `Intermediate (${level}): ${base.question}`,
+    };
+  });
 }
 
 function detectTopic(text, user = null) {
@@ -2120,6 +2256,123 @@ function localScene(user, text) {
         { base: "play", s: "plays", past: "played", v3: "played", ing: "playing" },
         { base: "write", s: "writes", past: "wrote", v3: "written", ing: "writing" },
         { base: "record", s: "records", past: "recorded", v3: "recorded", ing: "recording" },
+      ],
+    };
+  }
+
+  if (all.includes("football") || all.includes("sport") || all.includes("gym") || all.includes("boxing") || all.includes("basketball")) {
+    return {
+      label: "sports",
+      people: ["the player", "the coach", "the boxer", "the team"],
+      nouns: ["match", "training plan", "gym session", "competition"],
+      verbs: [
+        { base: "train", s: "trains", past: "trained", v3: "trained", ing: "training" },
+        { base: "win", s: "wins", past: "won", v3: "won", ing: "winning" },
+        { base: "play", s: "plays", past: "played", v3: "played", ing: "playing" },
+      ],
+    };
+  }
+
+  if (all.includes("coding") || all.includes("programming") || all.includes("technology") || all.includes("ai") || all.includes("robot")) {
+    return {
+      label: "technology",
+      people: ["the developer", "the robot", "the engineer", "the student"],
+      nouns: ["AI app", "website", "robot", "Python project"],
+      verbs: [
+        { base: "build", s: "builds", past: "built", v3: "built", ing: "building" },
+        { base: "code", s: "codes", past: "coded", v3: "coded", ing: "coding" },
+        { base: "fix", s: "fixes", past: "fixed", v3: "fixed", ing: "fixing" },
+      ],
+    };
+  }
+
+  if (all.includes("travel") || all.includes("flight") || all.includes("airport") || all.includes("hotel")) {
+    return {
+      label: "travel",
+      people: ["the traveller", "the tourist", "the guide", "my friend"],
+      nouns: ["flight", "hotel", "passport", "trip"],
+      verbs: [
+        { base: "book", s: "books", past: "booked", v3: "booked", ing: "booking" },
+        { base: "visit", s: "visits", past: "visited", v3: "visited", ing: "visiting" },
+        { base: "pack", s: "packs", past: "packed", v3: "packed", ing: "packing" },
+      ],
+    };
+  }
+
+  if (all.includes("game") || all.includes("gaming") || all.includes("minecraft") || all.includes("valorant")) {
+    return {
+      label: "gaming",
+      people: ["the gamer", "the streamer", "the player", "my teammate"],
+      nouns: ["game", "level", "mission", "tournament"],
+      verbs: [
+        { base: "play", s: "plays", past: "played", v3: "played", ing: "playing" },
+        { base: "complete", s: "completes", past: "completed", v3: "completed", ing: "completing" },
+        { base: "stream", s: "streams", past: "streamed", v3: "streamed", ing: "streaming" },
+      ],
+    };
+  }
+
+  if (all.includes("food") || all.includes("cooking") || all.includes("cook") || all.includes("recipe")) {
+    return {
+      label: "cooking",
+      people: ["the chef", "my mother", "the student", "the cook"],
+      nouns: ["recipe", "meal", "cake", "dinner"],
+      verbs: [
+        { base: "cook", s: "cooks", past: "cooked", v3: "cooked", ing: "cooking" },
+        { base: "prepare", s: "prepares", past: "prepared", v3: "prepared", ing: "preparing" },
+        { base: "taste", s: "tastes", past: "tasted", v3: "tasted", ing: "tasting" },
+      ],
+    };
+  }
+
+  if (all.includes("fashion") || all.includes("clothes") || all.includes("style")) {
+    return {
+      label: "fashion",
+      people: ["the designer", "the model", "my friend", "the stylist"],
+      nouns: ["jacket", "outfit", "dress", "fashion show"],
+      verbs: [
+        { base: "wear", s: "wears", past: "wore", v3: "worn", ing: "wearing" },
+        { base: "design", s: "designs", past: "designed", v3: "designed", ing: "designing" },
+        { base: "choose", s: "chooses", past: "chose", v3: "chosen", ing: "choosing" },
+      ],
+    };
+  }
+
+  if (all.includes("business") || all.includes("startup") || all.includes("entrepreneur") || all.includes("marketing")) {
+    return {
+      label: "business",
+      people: ["the founder", "the manager", "the client", "the team"],
+      nouns: ["startup", "project", "meeting", "presentation"],
+      verbs: [
+        { base: "launch", s: "launches", past: "launched", v3: "launched", ing: "launching" },
+        { base: "manage", s: "manages", past: "managed", v3: "managed", ing: "managing" },
+        { base: "present", s: "presents", past: "presented", v3: "presented", ing: "presenting" },
+      ],
+    };
+  }
+
+  if (all.includes("movie") || all.includes("film") || all.includes("anime") || all.includes("series")) {
+    return {
+      label: "movies and series",
+      people: ["the actor", "the director", "the fan", "my friend"],
+      nouns: ["movie", "episode", "scene", "series"],
+      verbs: [
+        { base: "watch", s: "watches", past: "watched", v3: "watched", ing: "watching" },
+        { base: "direct", s: "directs", past: "directed", v3: "directed", ing: "directing" },
+        { base: "review", s: "reviews", past: "reviewed", v3: "reviewed", ing: "reviewing" },
+      ],
+    };
+  }
+
+  if (all.includes("medicine") || all.includes("health") || all.includes("doctor") || all.includes("hospital")) {
+    return {
+      label: "health",
+      people: ["the doctor", "the nurse", "the patient", "the student"],
+      nouns: ["patient", "appointment", "medicine", "health plan"],
+      verbs: [
+        { base: "help", s: "helps", past: "helped", v3: "helped", ing: "helping" },
+        { base: "check", s: "checks", past: "checked", v3: "checked", ing: "checking" },
+        { base: "explain", s: "explains", past: "explained", v3: "explained", ing: "explaining" },
       ],
     };
   }
@@ -2345,8 +2598,8 @@ function localQuiz(topic, user, seedText = "", version = 0) {
   ];
 }
 
-function localTutorReply(userText, user, version = 0) {
-  const topic = detectTopic(userText, user);
+function localTutorReply(userText, user, version = 0, sessionContext = {}) {
+  const topic = resolveTopicWithContext(userText, user, sessionContext);
   const scene = localScene(user, userText);
   const catalogRow = getCatalogTopicById(topic);
   if (catalogRow) {
@@ -2454,6 +2707,7 @@ export default function App() {
   const [navInfo, setNavInfo] = useState(null);
 
   const [chatMessages, setChatMessages] = useState([]);
+  const [sessionContext, setSessionContext] = useState({ currentTopic: null, currentInterest: null, discussedTopics: [], lastMistake: null });
   const [chatInput, setChatInput] = useState("");
   const [isTutorLoading, setIsTutorLoading] = useState(false);
   const [pendingQuiz, setPendingQuiz] = useState(null);
@@ -2508,6 +2762,19 @@ export default function App() {
 
   function saveUserDatabase(database) {
     localStorage.setItem("classSpotUsers", JSON.stringify(database));
+  }
+
+
+  function rememberTopicFromText(text) {
+    const topic = resolveTopicWithContext(text, user, sessionContext);
+    const scene = localScene(user, text);
+    setSessionContext((prev) => ({
+      currentTopic: topic,
+      currentInterest: scene.label,
+      discussedTopics: Array.from(new Set([...(prev.discussedTopics || []), topic])).slice(-8),
+      lastMistake: prev.lastMistake || null,
+    }));
+    return { topic, interest: scene.label };
   }
 
   function isValidEmail(email) {
@@ -2585,7 +2852,7 @@ export default function App() {
       };
       setUser(loggedUser);
       setChatMessages([
-        { role: "assistant", text: "Welcome back! Tell me what English topic you want to improve today." },
+        { role: "assistant", text: getLevelIntroText(loggedUser) },
       ]);
       setScreen(loggedUser.level ? "dashboard" : "placement");
       return;
@@ -2671,7 +2938,12 @@ export default function App() {
     };
     database[email] = record;
     saveUserDatabase(database);
-    setUser({ name: record.name, surname: record.surname, email, age: record.age, level: record.level, interests: record.interests || [], goal: record.goal || "deep" });
+    const socialUser = { name: record.name, surname: record.surname, email, age: record.age, level: record.level, interests: record.interests || [], goal: record.goal || "deep" };
+    setUser(socialUser);
+    if (record.level) {
+      setSessionContext({ currentTopic: recommendTopic(record.level || "B1"), currentInterest: (record.interests || [])[0] || "daily life", discussedTopics: [], lastMistake: null });
+      setChatMessages([{ role: "assistant", text: getLevelIntroText(socialUser) }]);
+    }
     setScreen(record.level ? "dashboard" : "placement");
   }
 
@@ -2703,8 +2975,31 @@ export default function App() {
   }
 
   function submitProfileSetup() {
-    setUser((prev) => ({ ...prev, interests: parseInterests(profileForm.interests), goal: profileForm.goal }));
-    setChatMessages([{ role: "assistant", text: "Hi! I’m Spark. Tell me what you want to improve. For example: “Explain Reported Speech with music examples.”" }]);
+    const updatedUser = {
+      ...(user || {}),
+      name: user?.name || "Student",
+      surname: user?.surname || "",
+      email: user?.email || "",
+      age: user?.age ?? 17,
+      level: user?.level || level || "B1",
+      interests: parseInterests(profileForm.interests),
+      goal: profileForm.goal
+    };
+
+    const firstInterest = (updatedUser.interests || [])[0] || "daily life";
+
+    setUser(updatedUser);
+    setSessionContext({
+      currentTopic: recommendTopic(updatedUser.level || "B1"),
+      currentInterest: firstInterest,
+      discussedTopics: [],
+      lastMistake: null
+    });
+    setPendingQuiz(null);
+    setActiveQuiz([]);
+    setCurrentQuizIndex(0);
+    setQuizDone(false);
+    setChatMessages([{ role: "assistant", text: getLevelIntroText(updatedUser) }]);
     setScreen("dashboard");
   }
 
@@ -2719,7 +3014,7 @@ export default function App() {
   }
 
   function startQuiz(quiz) {
-    setActiveQuiz(quiz.slice(0, 5));
+    setActiveQuiz(adaptQuizToLevel(quiz, user?.level || "B1", questionVersion));
     setCurrentQuizIndex(0);
     setQuizScore(0);
     setQuizDone(false);
@@ -2734,24 +3029,41 @@ export default function App() {
   }
 
   async function sendChatMessage() {
-    if (!chatInput.trim() || isTutorLoading) return;
+    if (isTutorLoading) return;
+
+    if (!chatInput.trim()) {
+      console.warn("Spark debug: empty input ignored");
+      setChatMessages((prev) => [
+        ...prev,
+        { role: "assistant", text: "Debug: empty input. Please type an English grammar, vocabulary, reading, or speaking question." },
+      ]);
+      return;
+    }
 
     const text = chatInput.trim();
     setChatInput("");
     const userMessage = { role: "user", text };
+
+    if (!isLearningRelated(text, user, sessionContext)) {
+      console.warn("Spark debug: off-topic input", text);
+      setChatMessages((prev) => [...prev, userMessage, { role: "assistant", text: offTopicReply(user, sessionContext) }]);
+      return;
+    }
+
+    const remembered = rememberTopicFromText(text);
     const nextMessages = [...chatMessages, userMessage];
     setChatMessages(nextMessages);
     setIsTutorLoading(true);
 
     try {
       const api = await callTutorAPI(nextMessages, user);
-      const fallback = localTutorReply(text, user, questionVersion);
+      const fallback = localTutorReply(text, user, questionVersion, { ...sessionContext, currentTopic: remembered.topic, currentInterest: remembered.interest });
       const quiz = api.quiz || fallback.quiz;
       setPendingQuiz(quiz);
       setQuestionVersion((prev) => prev + 1);
       setChatMessages((prev) => [...prev, { role: "assistant", text: api.text || fallback.text }]);
     } catch (error) {
-      const fallback = localTutorReply(text, user, questionVersion);
+      const fallback = localTutorReply(text, user, questionVersion, { ...sessionContext, currentTopic: remembered.topic, currentInterest: remembered.interest });
       setPendingQuiz(fallback.quiz);
       setQuestionVersion((prev) => prev + 1);
       setChatMessages((prev) => [
@@ -2774,10 +3086,9 @@ export default function App() {
 
     if (correct) setQuizScore((prev) => prev + 1);
     else {
-      setMistakeLog((prev) => [
-        { id: Date.now(), topic: "AI Tutor", question: question.question, chosen: selected, correctAnswer, explanation: question.explanation, createdAt: new Date().toLocaleString() },
-        ...prev,
-      ]);
+      const mistake = { id: Date.now(), topic: "AI Tutor", question: question.question, chosen: selected, correctAnswer, explanation: question.explanation, createdAt: new Date().toLocaleString() };
+      setMistakeLog((prev) => [mistake, ...prev]);
+      setSessionContext((prev) => ({ ...prev, lastMistake: mistake }));
     }
 
     setChatMessages((prev) => [
@@ -2801,8 +3112,8 @@ export default function App() {
   function regenerateQuiz() {
     const version = questionVersion + 1;
     const lastUserMessage = [...chatMessages].reverse().find((m) => m.role === "user")?.text || "";
-    const topic = detectTopic(lastUserMessage, user);
-    const quiz = localQuiz(topic, user, lastUserMessage, version);
+    const topic = resolveTopicWithContext(lastUserMessage, user, sessionContext);
+    const quiz = localQuiz(topic, user, lastUserMessage || sessionContext.currentInterest || "", version);
     setQuestionVersion(version);
     setPendingQuiz(quiz);
     startQuiz(quiz);
@@ -3304,7 +3615,7 @@ export default function App() {
                       <p className="muted">Try: “Explain Reported Speech with music examples.”</p>
                     </div>
                     <div className="chatHeaderButtons">
-                      <button className="darkBtn" onClick={() => startQuiz(pendingQuiz || localQuiz(detectTopic(chatMessages[chatMessages.length - 1]?.text || ""), user, (user?.interests || []).join(" "), questionVersion))}>Start level quiz</button>
+                      <button className="darkBtn" onClick={() => startQuiz(pendingQuiz || localQuiz(sessionContext.currentTopic || recommendTopic(user?.level || "B1"), user, sessionContext.currentInterest || (user?.interests || []).join(" "), questionVersion))}>Start level quiz</button>
                       <button className="outlineBtn" onClick={regenerateQuiz}>New quiz</button>
                     </div>
                   </div>
