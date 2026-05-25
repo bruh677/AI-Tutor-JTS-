@@ -7,12 +7,13 @@ export default async function handler(req, res) {
 
   if (!apiKey) {
     return res.status(500).json({
-      error: "Missing ANTHROPIC_API_KEY. Add it to .env.local and to Vercel Environment Variables.",
+      error: "Missing ANTHROPIC_API_KEY. Add it to .env.local and Vercel Environment Variables.",
     });
   }
 
   try {
-    const body = typeof req.body === "string" ? JSON.parse(req.body || "{}") : req.body || {};
+    const body =
+      typeof req.body === "string" ? JSON.parse(req.body || "{}") : req.body || {};
 
     const messages = Array.isArray(body.messages) ? body.messages : [];
     const user = body.user || {};
@@ -25,6 +26,10 @@ export default async function handler(req, res) {
         content: String(m.content || m.text || ""),
       }))
       .filter((m) => m.content.trim().length > 0);
+
+    if (safeMessages.length === 0) {
+      return res.status(400).json({ error: "No messages provided." });
+    }
 
     const systemPrompt =
       systemFromClient ||
@@ -63,7 +68,6 @@ Rules:
 
     return res.status(200).json({
       text: data?.content?.[0]?.text || "",
-      raw: data,
     });
   } catch (error) {
     return res.status(500).json({
@@ -71,3 +75,7 @@ Rules:
     });
   }
 }
+
+
+
+

@@ -2204,6 +2204,65 @@ function detectTopic(text, user = null) {
   if (t.includes("conditional") || t.startsWith("if ") || t.includes(" if ")) return "conditionals";
   return "present_simple";
 }
+<div className="page">
+  <header className="header">
+    <img src="/logo.png" className="logo" />
+
+    <div className="header-actions">
+      <button>Edit interests</button>
+      <button>Log out</button>
+    </div>
+  </header>
+
+  <section className="main-card">
+    <h1>Homework & Tasks</h1>
+
+    <div className="form-row">
+      <input placeholder="HW1" />
+      <input placeholder="Today 21:00" />
+      <select>
+        <option>Future with going to</option>
+        <option>Present Perfect</option>
+        <option>Conditionals</option>
+        <option>Reported Speech</option>
+      </select>
+    </div>
+  </section>
+
+  <section className="main-card">
+    <h1>Schedule</h1>
+
+    <div className="form-row">
+      <input placeholder="Lesson title" />
+      <input placeholder="Time, e.g. Monday · 18:00" />
+      <select>
+        <option>Present Perfect</option>
+        <option>Conditionals</option>
+        <option>Reported Speech</option>
+      </select>
+    </div>
+
+    <div className="schedule-grid">
+      <div className="lesson-card">
+        <h3>AI Grammar Lesson</h3>
+        <p>Today · 18:00</p>
+        <p>Present Perfect · ready</p>
+      </div>
+
+      <div className="lesson-card">
+        <h3>Speaking Practice</h3>
+        <p>Tomorrow · 17:30</p>
+        <p>Conditionals · planned</p>
+      </div>
+
+      <div className="lesson-card">
+        <h3>Mistake Review</h3>
+        <p>Friday · 19:00</p>
+        <p>Reported Speech · planned</p>
+      </div>
+    </div>
+  </section>
+</div>
 
 function localScene(user, text) {
   const all = `${(user?.interests || []).join(" ")} ${text}`.toLowerCase();
@@ -3763,6 +3822,7 @@ button { cursor: pointer; }
 .outlineBtn, .darkBtn, .greenBtn, .purpleBtn, .closeBtn, .backBtn, .dangerBtn { border-radius: 22px; padding: 14px 24px; font-weight: 800; border: none; }
 .outlineBtn { background: white; border: 1.5px solid #111; color: #111; }
 .darkBtn { background: #060606; color: white; }
+.inlineForm button.darkBtn { min-width: 180px; padding: 16px 28px; font-size: 16px; }
 .greenBtn { background: #b9ff3f; color: #080808; }
 .purpleBtn { width: 100%; margin-top: 28px; background: #6d7bf7; color: white; border-radius: 16px; padding: 20px; font-size: 18px; }
 .dangerBtn { background: #ff4d4d; color: white; }
@@ -3867,7 +3927,8 @@ button { cursor: pointer; }
 .readingResult h2 { font-size: 48px; margin: 0; }
 .passText { color: #2a9b38; }
 .failText { color: #d64545; }
-.inlineForm { display: grid; grid-template-columns: 1.2fr 1fr 1fr auto; gap: 12px; margin: 18px 0 24px; align-items: center; }
+.inlineForm { display: grid; grid-template-columns: 1.2fr 1fr 1fr auto; gap: 12px; margin: 18px 0 24px; align-items: center; overflow: visible; }
+.inlineForm button.darkBtn { min-width: 220px; width: min(100%, 260px); padding: 16px 30px; font-size: 16px; white-space: nowrap; box-shadow: 0 16px 36px rgba(0, 0, 0, 0.14); }
 .scheduleGrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
 .scheduleCard { border: 1px solid #dfe4fb; border-radius: 20px; background: #fbfcff; padding: 20px; text-align: left; display: flex; flex-direction: column; gap: 10px; }
 .scheduleCard.selected { border-color: #6d7bf7; background: #f0f3ff; }
